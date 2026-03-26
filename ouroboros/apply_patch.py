@@ -1,9 +1,11 @@
 """
 Apply-patch shim for Claude Code CLI.
 Writes apply_patch script to /usr/local/bin/ on import.
+Falls back to ~/.local/bin/ if no write permission.
 
 Supports: *** Update File, *** Add File, *** Delete File, *** End of File.
 """
+import os
 import pathlib
 
 
@@ -172,7 +174,22 @@ if __name__ == "__main__":
 
 
 def install():
-    """Install apply_patch script to /usr/local/bin/."""
-    APPLY_PATCH_PATH.parent.mkdir(parents=True, exist_ok=True)
-    APPLY_PATCH_PATH.write_text(APPLY_PATCH_CODE, encoding="utf-8")
-    APPLY_PATCH_PATH.chmod(0o755)
+    """Install apply_patch script.
+
+    Tries /usr/local/bin/ first; falls back to ~/.local/bin/ if no permission.
+    Adds ~/.local/bin to PATH in the current process when using fallback.
+    """
+    try:
+        APPLY_PATCH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        APPLY_PATCH_PATH.write_text(APPLY_PATCH_CODE, encoding="utf-8")
+        APPLY_PATCH_PATH.chmod(0o755)
+    except PermissionError:
+        fallback = pathlib.Path.home() / ".local" / "bin" / "apply_patch"
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        fallback.write_text(APPLY_PATCH_CODE, encoding="utf-8")
+        fallback.chmod(0o755)
+        # Ensure ~/.local/bin is on PATH for this process
+        local_bin = str(fallback.parent)
+        path_env = os.environ.get("PATH", "")
+        if local_bin not in path_env.split(os.pathsep):
+            os.environ["PATH"] = local_bin + os.pathsep + path_env

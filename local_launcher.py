@@ -212,6 +212,28 @@ from supervisor.state import (
 state_init(DRIVE_ROOT, TOTAL_BUDGET_LIMIT)
 init_state()
 
+# Sync real budget limit from OpenRouter at startup
+try:
+    from supervisor.state import check_openrouter_ground_truth, set_budget_limit, save_state
+    _gt = check_openrouter_ground_truth()
+    if _gt is not None and "limit_usd" in _gt:
+        _real_limit = _gt["limit_usd"]
+        set_budget_limit(_real_limit)
+        log.info(f"OpenRouter budget limit synced: ${_real_limit:.2f} (was ${TOTAL_BUDGET_LIMIT:.2f})")
+        TOTAL_BUDGET_LIMIT = _real_limit
+        # Also update OpenRouter stats in state
+        from supervisor.state import load_state as _load_st, save_state as _save_st
+        import datetime
+        _st = _load_st()
+        _st["openrouter_total_usd"] = _gt["total_usd"]
+        _st["openrouter_daily_usd"] = _gt["daily_usd"]
+        _st["openrouter_limit_usd"] = _gt["limit_usd"]
+        _st["openrouter_limit_remaining_usd"] = _gt.get("limit_remaining_usd", 0.0)
+        _st["openrouter_last_check_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        _save_st(_st)
+except Exception as _e:
+    log.warning(f"Failed to sync OpenRouter budget at startup: {_e}")
+
 from supervisor.telegram import (
     init as telegram_init, TelegramClient, send_with_budget, log_chat,
 )

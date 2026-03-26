@@ -146,6 +146,11 @@ def ensure_state_defaults(st: Dict[str, Any]) -> Dict[str, Any]:
     st.setdefault("budget_drift_pct", None)
     st.setdefault("budget_drift_alert", False)
     st.setdefault("evolution_consecutive_failures", 0)
+    st.setdefault("openrouter_total_usd", None)
+    st.setdefault("openrouter_daily_usd", None)
+    st.setdefault("openrouter_limit_usd", None)
+    st.setdefault("openrouter_limit_remaining_usd", None)
+    st.setdefault("openrouter_last_check_at", "")
     for legacy_key in ("approvals", "idle_cursor", "idle_stats", "last_idle_task_at",
                         "last_auto_review_at", "last_review_task_id", "session_daily_snapshot"):
         st.pop(legacy_key, None)
@@ -225,6 +230,11 @@ def init_state() -> Dict[str, Any]:
             st["openrouter_total_usd"] = ground_truth["total_usd"]
             st["openrouter_daily_usd"] = ground_truth["daily_usd"]
             st["openrouter_last_check_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            if "limit_usd" in ground_truth:
+                st["openrouter_limit_usd"] = ground_truth["limit_usd"]
+                set_budget_limit(ground_truth["limit_usd"])
+            if "limit_remaining_usd" in ground_truth:
+                st["openrouter_limit_remaining_usd"] = ground_truth["limit_remaining_usd"]
         else:
             # If we can't fetch ground truth, use 0 as baseline
             st["session_total_snapshot"] = 0.0
@@ -281,10 +291,17 @@ def check_openrouter_ground_truth() -> Optional[Dict[str, float]]:
         # OpenRouter API returns usage already in dollars (not cents)
         usage_total = data.get("data", {}).get("usage", 0)
         usage_daily = data.get("data", {}).get("usage_daily", 0)
-        return {
+        limit = data.get("data", {}).get("limit", None)  # None = unlimited
+        limit_remaining = data.get("data", {}).get("limit_remaining", None)
+        result: Dict[str, float] = {
             "total_usd": float(usage_total),
             "daily_usd": float(usage_daily),
         }
+        if limit is not None:
+            result["limit_usd"] = float(limit)
+        if limit_remaining is not None:
+            result["limit_remaining_usd"] = float(limit_remaining)
+        return result
     except Exception:
         log.warning("Failed to fetch OpenRouter ground truth", exc_info=True)
         return None
@@ -352,6 +369,13 @@ def update_budget_from_usage(usage: Dict[str, Any]) -> None:
                 st["openrouter_total_usd"] = ground_truth["total_usd"]
                 st["openrouter_daily_usd"] = ground_truth["daily_usd"]
                 st["openrouter_last_check_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                # Sync budget limit from OpenRouter (so it stays current if the user tops up)
+                if "limit_usd" in ground_truth:
+                    new_limit = ground_truth["limit_usd"]
+                    set_budget_limit(new_limit)
+                    st["openrouter_limit_usd"] = new_limit
+                if "limit_remaining_usd" in ground_truth:
+                    st["openrouter_limit_remaining_usd"] = ground_truth["limit_remaining_usd"]
 
                 session_total_snap = st.get("session_total_snapshot")
                 session_spent_snap = st.get("session_spent_snapshot")

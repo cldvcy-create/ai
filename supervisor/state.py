@@ -263,7 +263,15 @@ def set_budget_limit(limit: float) -> None:
 
 
 def budget_remaining(st: Dict[str, Any]) -> float:
-    """Calculate remaining budget in USD."""
+    """Calculate remaining budget in USD.
+
+    Primary source: openrouter_limit_remaining_usd (real-time from OpenRouter API).
+    Fallback: TOTAL_BUDGET_LIMIT - spent_usd (local accounting, may undercount).
+    """
+    or_remaining = st.get("openrouter_limit_remaining_usd")
+    if or_remaining is not None:
+        return max(0.0, float(or_remaining))
+    # Fallback: local accounting
     spent = float(st.get("spent_usd") or 0.0)
     total = float(TOTAL_BUDGET_LIMIT or 0.0)
     if total <= 0:
@@ -308,7 +316,16 @@ def check_openrouter_ground_truth() -> Optional[Dict[str, float]]:
 
 
 def budget_pct(st: Dict[str, Any]) -> float:
-    """Calculate budget percentage used."""
+    """Calculate budget percentage used.
+
+    Primary source: openrouter_limit_usd / openrouter_limit_remaining_usd (real-time).
+    Fallback: spent_usd / TOTAL_BUDGET_LIMIT (local accounting).
+    """
+    or_limit = st.get("openrouter_limit_usd")
+    or_remaining = st.get("openrouter_limit_remaining_usd")
+    if or_limit and or_remaining is not None:
+        return max(0.0, min(100.0, (1.0 - float(or_remaining) / float(or_limit)) * 100.0))
+    # Fallback: local accounting
     spent = float(st.get("spent_usd") or 0.0)
     total = float(TOTAL_BUDGET_LIMIT or 0.0)
     if total <= 0:
